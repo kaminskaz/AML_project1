@@ -1,0 +1,8 @@
+.llm_context
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Optional local data cache
+data/
