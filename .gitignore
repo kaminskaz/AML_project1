@@ -4,5 +4,5 @@ __pycache__/
 *.pyc
 .DS_Store
 
-# Optional local data cache
-data/
+
+outputs/

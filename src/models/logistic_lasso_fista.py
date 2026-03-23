@@ -238,8 +238,26 @@ def _fista_logistic_lasso(
 class LogisticLassoFISTA:
     """Logistic regression with an L1 penalty solved via FISTA.
 
-    This class focuses on the core optimization (Steps 3–5). Higher-level
-    validation over a lambda path and plotting will be added in later steps.
+        Objective (on training data)::
+
+                mean_i [log(1 + exp(z_i)) - y_i * z_i] + lambda * ||w||_1
+
+        where::
+
+                z_i = b + x_i^T w
+
+        Notes
+        - `y` must be fully observed and in `{0,1}`.
+        - The intercept `b` is unpenalized.
+        - If `standardize=True` (default), features are scaled by their training
+            standard deviation; centering is applied only when `fit_intercept=True`.
+
+        Public API
+        - `fit(...)`: fits a lambda path (warm starts) and optionally selects the
+            best lambda by a validation metric.
+        - `validate(...)`: computes scores across the fitted lambda path.
+        - `predict_proba(X)`: returns probabilities for class 1 as a 1D array.
+        - `plot()`, `plot_coefficients()`: matplotlib helpers.
     """
 
     def __init__(
@@ -603,7 +621,7 @@ class LogisticLassoFISTA:
         return X_arr @ self.coef_ + self.intercept_
 
     def predict_proba(self, X: ArrayLike) -> np.ndarray:
-        """Return P(y=1|x) as a 1D array."""
+        """Return P(y=1|x) as a 1D array of shape `(n_samples,)`."""
 
         scores = self.decision_function(X)
         return _sigmoid(scores)
