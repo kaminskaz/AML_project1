@@ -1,3 +1,9 @@
 numpy>=1.23
 scikit-learn>=1.2
 matplotlib>=3.7
+pandas
+scikit-learn
+seaborn
+matplotlib
+numpy
+scipy
