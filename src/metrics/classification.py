@@ -14,6 +14,7 @@ MetricName = Literal[
     "precision",
     "recall",
     "f1",
+    "accuracy",
     "balanced_accuracy",
     "roc_auc",
     "pr_auc",
@@ -110,6 +111,15 @@ def f1(y_true: ArrayLike, y_pred: ArrayLike, *, zero_division: float = 0.0) -> f
     return float(2.0 * p * r / denom) if denom > 0 else float(zero_division)
 
 
+def accuracy(y_true: ArrayLike, y_pred: ArrayLike) -> float:
+    """Accuracy = (TP + TN) / (TP + TN + FP + FN)."""
+
+    yt = _as_1d_int_array(y_true)
+    yp = _as_1d_int_array(y_pred)
+    _confusion_counts(yt, yp)  # validates binary labels
+    return float(np.mean(yt == yp))
+
+
 def balanced_accuracy(y_true: ArrayLike, y_pred: ArrayLike) -> float:
     """Balanced accuracy at a fixed threshold.
 
@@ -194,6 +204,8 @@ _ALIASES: dict[str, MetricName] = {
     "f-measure": "f1",
     "f_measure": "f1",
     "fscore": "f1",
+    "accuracy": "accuracy",
+    "acc": "accuracy",
     "balanced_accuracy": "balanced_accuracy",
     "balanced-accuracy": "balanced_accuracy",
     "roc_auc": "roc_auc",
@@ -239,6 +251,10 @@ def get_metric_callable(metric: str) -> Callable[..., float]:
         )
     if canonical == "f1":
         return lambda y_true, y_proba, threshold=0.5: f1(
+            y_true, threshold_predictions(y_proba, threshold=threshold)
+        )
+    if canonical == "accuracy":
+        return lambda y_true, y_proba, threshold=0.5: accuracy(
             y_true, threshold_predictions(y_proba, threshold=threshold)
         )
     if canonical == "balanced_accuracy":
