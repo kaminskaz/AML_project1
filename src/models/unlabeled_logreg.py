@@ -148,3 +148,14 @@ class UnlabeledLogReg:
         n_feat = int(self.model_.coef_.shape[0])
         X_arr = _pad_to_n_features(X_arr, n_feat)
         return self.model_.predict_proba(X_arr)
+    
+    def predict(self, X: ArrayLike) -> np.ndarray:
+        """Predict class labels for samples in X."""
+        if self.model_ is None:
+            raise RuntimeError("Call fit() first.")
+        
+        X_arr = _as_2d_float_array(X)
+        n_feat = int(self.model_.coef_.shape[0])
+        X_arr = _pad_to_n_features(X_arr, n_feat)
+        
+        return self.model_.predict(X_arr)

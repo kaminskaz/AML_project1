@@ -112,7 +112,8 @@ def generate_missing(
 
     if mode == 'MNAR':
         df_selected = df
-        betas = np.insert(betas_x, class_idx, beta_strength * y_strength_scale)
+        max_beta = max(betas_x) if len(betas_x) > 0 else beta_strength
+        betas = np.insert(betas_x, class_idx, max_beta * y_strength_scale)
     else:
         df_selected = df.drop(columns=['class'])
         betas = betas_x
