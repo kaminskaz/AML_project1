@@ -10,6 +10,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+## Task 1 (Missing Data Algorithms)
+
+Core implementation lives in `src/models/data_preparation.py`.
+Details about selected datasets and preprocessing steps can be found in `notebooks/data_prep.ipynb`
+
 ## Task 2 (Logistic Lasso via FISTA)
 
 Core implementation lives in `src/models/logistic_lasso_fista.py`.
@@ -32,3 +37,11 @@ Optional: save plots to a folder
 ```bash
 ./.venv/bin/python -m src.experiments.task2_sklearn_comparison --metric balanced_accuracy --save-dir outputs
 ```
+
+## Task 3 (Unlabeled Logistic Regression)
+
+Core implementation lives in `src/models/unlabeled_logreg.py`.
+
+### Run experiments
+
+Codes required to run all experiments can be found in `notebooks/`.
