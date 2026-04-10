@@ -625,3 +625,11 @@ class LogisticLassoFISTA:
 
         scores = self.decision_function(X)
         return _sigmoid(scores)
+    
+    def predict(self, X: ArrayLike, threshold: float = 0.5) -> np.ndarray:
+        """Predict class labels for samples in X based on a probability threshold."""
+        if self.coef_ is None or self.intercept_ is None:
+            raise RuntimeError("Call fit() first.")
+            
+        probs = self.predict_proba(X)
+        return (probs >= threshold).astype(int)

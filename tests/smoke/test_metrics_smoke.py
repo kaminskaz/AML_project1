@@ -27,9 +27,17 @@ def test_basic_metrics_perfect_predictions() -> None:
     y_true = np.array([0, 1, 0, 1])
     y_proba = np.array([0.1, 0.9, 0.4, 0.6])
 
-    for name in ["precision", "recall", "f1", "balanced_accuracy", "roc_auc", "pr_auc"]:
+    for name in ["precision", "recall", "f1", "accuracy", "balanced_accuracy", "roc_auc", "pr_auc"]:
         res = compute_metric(name, y_true, y_proba, threshold=0.5)
-        assert res.name in {"precision", "recall", "f1", "balanced_accuracy", "roc_auc", "pr_auc"}
+        assert res.name in {
+            "precision",
+            "recall",
+            "f1",
+            "accuracy",
+            "balanced_accuracy",
+            "roc_auc",
+            "pr_auc",
+        }
         assert abs(res.value - 1.0) < 1e-12
 
 

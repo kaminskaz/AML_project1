@@ -1,35 +1,56 @@
+from __future__ import annotations
+
 import numpy as np
+from numpy.random import Generator
 from scipy.optimize import bisect
 import pandas as pd
 
-def mcar(df, c=0.2):
+
+def mcar(df, c=0.2, rng: Generator | None = None):
     """
     Generates missingness in the 'class' column using a Missing Completely At Random (MCAR) mechanism.
-    
-    Parameters:
-    -----------
+
+    Parameters
+    ----------
     df : pd.DataFrame
         The dataset. Must contain a column named 'class'.
     c : float, default 0.2
         The target fraction of missing values to generate (0.0 to 1.0).
+    rng : np.random.Generator, optional
+        If given, used for Bernoulli draws; otherwise ``numpy.random.rand``.
 
-    Returns:
-    --------
+    Returns
+    -------
     df_out : pd.DataFrame
-        A copy of df where 'class' is replaced by 'class_observed'. 
+        A copy of df where 'class' is replaced by 'class_observed'.
         Missing values are encoded as -1.
     actual_fraction : float
         The actual proportion of missingness generated (will be close to 'c').
+    missing_mask : ndarray of bool, shape (n_rows,)
+        True where the label was made missing.
     """
     df_out = df.copy()
-    missing_mask = np.random.rand(df_out.shape[0]) < c
+    n = df_out.shape[0]
+    if rng is not None:
+        missing_mask = rng.random(n) < c
+    else:
+        missing_mask = np.random.rand(n) < c
 
-    df_out['class_observed'] = df_out['class']
-    df_out.loc[missing_mask, 'class_observed'] = -1
-    df_out.drop(columns=['class'], inplace=True)
-    return df_out, missing_mask.mean()
+    df_out["class_observed"] = df_out["class"]
+    df_out.loc[missing_mask, "class_observed"] = -1
+    df_out.drop(columns=["class"], inplace=True)
+    return df_out, missing_mask.mean(), missing_mask
 
-def generate_missing(target_fraction, df, betas_x=None, column_index=None, beta_strength=0.8, mode='MAR', y_strength_scale = 1):
+def generate_missing(
+    target_fraction,
+    df,
+    betas_x=None,
+    column_index=None,
+    beta_strength=0.8,
+    mode="MAR",
+    y_strength_scale=1,
+    rng: Generator | None = None,
+):
     """
     Generates a missingness mask for the 'class' column using a logistic regression model.
     
@@ -56,8 +77,10 @@ def generate_missing(target_fraction, df, betas_x=None, column_index=None, beta_
         'MAR': Missingness depends only on observed features (X).
         'MNAR': Missingness depends on both observed features (X) and the target variable (Y).
     y_strength_scale : float, default 1
-        Multiplier for the 'class' coefficient in MNAR mode to increase/decrease 
+        Multiplier for the 'class' coefficient in MNAR mode to increase/decrease
         the target variable's influence on its own missingness.
+    rng : np.random.Generator, optional
+        If given, used for Bernoulli draws; otherwise ``numpy.random.rand``.
 
     Mechanism Descriptions:
     -----------------------
@@ -78,6 +101,8 @@ def generate_missing(target_fraction, df, betas_x=None, column_index=None, beta_
         The coefficients used in the logistic model.
     actual_fraction : float
         The actual proportion of missingness achieved in this run.
+    missing_mask : ndarray of bool, shape (n_rows,)
+        True where the label was made missing.
     """
     if betas_x is None:
         n_features = df.shape[1] - 1
@@ -87,7 +112,8 @@ def generate_missing(target_fraction, df, betas_x=None, column_index=None, beta_
 
     if mode == 'MNAR':
         df_selected = df
-        betas = np.insert(betas_x, class_idx, beta_strength * y_strength_scale)
+        max_beta = max(betas_x) if len(betas_x) > 0 else beta_strength
+        betas = np.insert(betas_x, class_idx, max_beta * y_strength_scale)
     else:
         df_selected = df.drop(columns=['class'])
         betas = betas_x
@@ -95,14 +121,18 @@ def generate_missing(target_fraction, df, betas_x=None, column_index=None, beta_
     beta0, final_betas = beta_adjust(target_fraction, df_selected, betas, column_index, beta_strength)
     linear_comp = np.dot(df_selected, final_betas)
     probs = 1 / (1 + np.exp(-(beta0 + linear_comp)))
-    missing_mask = np.random.rand(df_selected.shape[0]) < probs
-    
-    df_out = df.copy()
-    df_out['class_observed'] = df_out['class']
-    df_out.loc[missing_mask, 'class_observed'] = -1
-    df_out.drop(columns=['class'], inplace=True)
+    n_row = df_selected.shape[0]
+    if rng is not None:
+        missing_mask = rng.random(n_row) < probs
+    else:
+        missing_mask = np.random.rand(n_row) < probs
 
-    return df_out, beta0, final_betas, missing_mask.mean()
+    df_out = df.copy()
+    df_out["class_observed"] = df_out["class"]
+    df_out.loc[missing_mask, "class_observed"] = -1
+    df_out.drop(columns=["class"], inplace=True)
+
+    return df_out, beta0, final_betas, missing_mask.mean(), missing_mask
 
 def beta_adjust(target_fraction, X, betas=None, column_index=None, beta_strength=0.8):
     """
