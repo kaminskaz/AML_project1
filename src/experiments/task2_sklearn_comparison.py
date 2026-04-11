@@ -1,24 +1,7 @@
 """Compare custom FISTA Logistic Lasso vs scikit-learn L1 LogisticRegression.
 
-This script is meant as a runnable, reproducible comparison
-It:
-- creates a (fully-observed) binary classification dataset with make_classification
-- splits into train/valid/test
-- fits `LogisticLassoFISTA` over a lambda grid and selects best lambda by a
-  chosen validation metric
-- fits an sklearn L1 logistic baseline over a comparable grid and selects best
-  hyperparameter by the same metric
-- prints performance + sparsity summaries
-
 Run:
   ./.venv/bin/python -m src.experiments.task2_sklearn_comparison --metric roc_auc
-
-Notes on lambda vs C mapping
-- Our objective uses mean loss + lambda * ||w||_1.
-- sklearn's `LogisticRegression` uses `C` as inverse regularization strength,
-  and its loss is scaled differently (effectively a sum over samples).
-- A common practical alignment is:
-    C ≈ 1 / (lambda * n_train)
 """
 
 from __future__ import annotations

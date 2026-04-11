@@ -1,0 +1,504 @@
+\documentclass{article}
+\usepackage[utf8]{inputenc}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{booktabs} % For professional tables
+\usepackage{amsmath}
+\usepackage{subcaption}
+\usepackage{geometry}
+\usepackage{float}
+\usepackage{enumitem}
+\usepackage{url}
+\usepackage{float}
+
+\geometry{margin=1in}
+\setlength{\parindent}{0mm} 
+
+\begin{document}
+
+\begin{titlepage}
+    \centering 
+    \vspace*{\fill} 
+
+    {\LARGE \textnormal{Advanced Machine Learning - Project 1} \par}
+    \vspace{0.5em}
+    {\huge \textbf{Analysis of Logistic Regression with Missing Labels} \par}
+    
+    \vspace{2cm} 
+    
+    {\large Mateusz Iwaniuk, Zofia Kaminska, Hubert Kowalski \par}
+    
+    \vspace{1cm}
+    
+    {\large April 2026 \par}
+
+    \vspace*{\fill} 
+\end{titlepage}
+
+\newpage
+\tableofcontents 
+\newpage 
+
+\section{Task 1}
+\subsection{Dataset Preparation}
+For this project, four real-world binary classification datasets with numerical features were selected from the OpenML and UCI repositories. The datasets vary in complexity, feature count, and sample size to ensure a robust analysis of the logistic regression model. Further details on dataset origins, feature semantics, and the binarization process are available in the Appendix.
+
+\begin{table}[H]
+\centering
+\caption{Summary of Selected Datasets}
+\vspace{0.5em}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Dataset} & \textbf{Rows} & \textbf{Columns} & \textbf{Class 1 (Pos)} & \textbf{Class 0 (Neg)} \\ 
+\midrule
+Bioresponse  & 3751 & 1751 & 2034 & 1717  \\ 
+Gallstones   & 319  & 38   & 158  & 161   \\ 
+Musk         & 6598 & 135  & 1017 & 5581  \\ 
+Spectrometer & 531  & 49   & 55   & 476   \\ 
+\bottomrule
+\end{tabular}
+\end{table}
+
+To ensure compatibility with the logistic regression model, datasets were checked for missing values (none found), non-predictive identifier columns were dropped, and highly correlated features were removed. Target variables were uniformly renamed to `class' and binary-encoded (1 for positive, 0 for negative). All features were standardised.
+
+\subsection{Missing Data Mechanisms}
+The missingness in the response variable $Y$ is determined by a binary indicator $S$, where $S=1$ signifies a missing label ($Y=-1$). We implemented four generation schemes based on the logistic probability model:
+\[ P(S=1|X,Y) = \frac{1}{1 + \exp(-(\beta_0 + \sum \beta_i x_i + \beta_y y))} \]
+
+\begin{itemize}
+\item \textbf{MCAR (Missing Completely at Random):} The probability of missingness is a constant $c$, independent of $X$ and $Y$.
+\item \textbf{MAR1 (Single Variable):} Missingness depends only on one specific numerical feature $x_i$: $\beta_i=0.8$ (default), $\beta_j=0$ for all $i \neq j$, $\beta_y=0$.
+\item \textbf{MAR2 (Multi-Variable):} Missingness is driven by all observed features $X$, either with uniform $\beta_x = 0.8$ for all $\beta$ (default), or random weights (vector parameter), $\beta_y=0$.
+\item \textbf{MNAR (Missing Not at Random):} The probability depends on both features $X$ (as in MAR) and the true (unobserved) value of $Y$. The \texttt{y\_strength\_scale} parameter is responsible for calculating $\beta_y$ according to the formula $\beta_y = y\_strength\_scale  \times \max(\beta_x)$ 
+\end{itemize}
+
+The intercept $\beta_0$ for each scenario was calibrated using a bisection method to ensure the actual missingness proportion closely matched the target fraction of missing data.
+
+\section{Task 2}
+\subsection{Logistic Lasso solved by FISTA}
+In Task 2 we implement logistic regression with an $\ell_1$ penalty (Logistic Lasso) and solve it from scratch using the FISTA (Fast Iterative Shrinkage-Thresholding Algorithm). For training data $\{(x_i,y_i)\}_{i=1}^n$ with $y_i\in\{0,1\}$ and $x_i\in\mathbb{R}^p$, the objective used in our implementation is
+\begin{equation}
+\label{eq:task2_obj}
+\min_{w\in\mathbb{R}^p,\,b\in\mathbb{R}} \; \underbrace{\frac{1}{n}\sum_{i=1}^n\left[\log\bigl(1+\exp(z_i)\bigr)-y_i z_i\right]}_{\text{mean logistic loss}} + \lambda\,\lVert w\rVert_1,\qquad z_i=b+x_i^\top w.
+\end{equation}
+The intercept $b$ is not penalised. The smooth part (mean logistic loss) is convex and differentiable, and the non-smooth term is handled by the proximal operator of the $\ell_1$ norm.
+
+FISTA is an accelerated proximal-gradient method. Given a current extrapolated point $(\tilde w_k,\tilde b_k)$ and a step size $1/L_k$, one iteration computes:
+\begin{align}
+u_k &= \tilde w_k - \frac{1}{L_k}\nabla_w\ell(\tilde w_k,\tilde b_k),\\
+w_{k+1} &= \mathrm{soft}\!\left(u_k,\frac{\lambda}{L_k}\right),\\
+b_{k+1} &= \tilde b_k - \frac{1}{L_k}\,\nabla_b\ell(\tilde w_k,\tilde b_k),
+\end{align}
+where $\mathrm{soft}(\cdot,\tau)$ denotes elementwise soft-thresholding and $\ell(w,b)$ is the mean logistic loss term in \eqref{eq:task2_obj}. The step size is chosen with a backtracking line search (increasing $L_k$) until the standard quadratic upper-bound condition holds:
+\begin{equation}
+\label{eq:task2_backtracking}
+\ell(w_{k+1},b_{k+1}) \le \ell(\tilde w_k,\tilde b_k) + \left\langle \nabla\ell(\tilde w_k,\tilde b_k),\begin{pmatrix} w_{k+1}-\tilde w_k \\ b_{k+1}-\tilde b_k \end{pmatrix}\right\rangle + \frac{L_k}{2}\left\lVert\begin{pmatrix} w_{k+1}-\tilde w_k \\ b_{k+1}-\tilde b_k \end{pmatrix}\right\rVert_2^2.
+\end{equation}
+We use a numerically stable sigmoid and compute the loss via $\log(1+\exp(z))=\operatorname{logaddexp}(0,z)$. With backtracking, the objective empirically decreases over iterations; we stop when the relative change of the full objective in \eqref{eq:task2_obj} becomes smaller than a tolerance (or after a maximum number of iterations).
+
+To cover multiple regularisation strengths efficiently, we fit a decreasing grid of $\lambda$ values and warm-start each optimisation at the previous solution. The default grid is log-spaced from an estimated $\lambda_{\max}$ (based on the KKT condition at $w=0$) down to $\lambda_{\min}=\lambda_{\max}\cdot\texttt{lambda\_ratio}$.
+
+As we see in Figure \ref{fig:lambdas_spectro}, the optimal value of lambda chosen by the FISTA algorithm can vary significantly between different optimisation metrics.
+
+\begin{figure}[H]
+    \centering
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{metrics_spectro.png}
+        \caption{Score metrics across lambda values}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{coeffs_spectro.png}
+        \caption{Coefficient plot}
+    \end{subfigure}
+    \caption{Values of parameters chosen by FISTA algorithm - spectrometer dataset}
+    \label{fig:lambdas_spectro}
+\end{figure}
+
+That's why we see the such a high difference across different performance metrics presented in Table \ref{tab:task3-spectrometer}. While the ROC AUC and accuracy metrics remain high, other metrics, like balanced accuracy or F1, are extremely bad in case of the highly unbalanced dataset. The model most likely learned to predict only the majority class with the selected lambda. The optimal parameters also differ between selected datasets, as seen in Figures \ref{fig:lambdas_bio}-\ref{fig:lambdas_musk} in the Appendix.
+
+\subsection{Correctness discussion and comparison to scikit-learn}
+To validate the correctness of the implementation, we compare our FISTA solution path against \texttt{sklearn.linear\_model.LogisticRegression} with an $\ell_1$ penalty on multiple real datasets. The suite in \texttt{src/experiments/task2\_comparison\_suite.py} repeats class-stratified train/validation/test splits (5 seeds), selects the regularisation strength on validation (balanced accuracy / ROC AUC / PR AUC), and evaluates multiple test metrics. Since our objective uses the \emph{mean} loss, we align regularisation strengths approximately via
+\begin{equation}
+\label{eq:task2_lambda_C}
+C \approx \frac{1}{\lambda\,n_{\text{train}}},
+\end{equation}
+and use the corresponding $C$ values for the scikit-learn baseline.
+
+Table \ref{tab:task2_sklearn_compact} shows a compact subset of the aggregated results (selection metric: balanced accuracy). The test metrics are very similar for both methods on both datasets, and the resulting sparsity levels (\# non-zero coefficients) are comparable.
+
+\begin{table}[H]
+\centering
+\caption{Task 2: comparison of our FISTA implementation with scikit-learn L1 logistic regression (mean $\pm$ std over 5 random splits; $\lambda$ selected by validation balanced accuracy).}
+\label{tab:task2_sklearn_compact}
+\vspace{0.5em}
+\begin{tabular}{llcccc}
+\toprule
+\textbf{Dataset} & \textbf{Method} & \textbf{Test bal. acc.} & \textbf{Test ROC AUC} & \textbf{Test PR AUC} & \textbf{nnz}\\
+\midrule
+Bioresponse & FISTA & $0.770 \pm 0.009$ & $0.835 \pm 0.011$ & $0.843 \pm 0.012$ & $242 \pm 59$ \\
+Bioresponse & sklearn (L1) & $0.769 \pm 0.008$ & $0.834 \pm 0.007$ & $0.843 \pm 0.009$ & $238 \pm 101$ \\
+Musk & FISTA & $0.873 \pm 0.009$ & $0.970 \pm 0.006$ & $0.898 \pm 0.010$ & $122 \pm 2$ \\
+Musk & sklearn (L1) & $0.873 \pm 0.011$ & $0.970 \pm 0.006$ & $0.898 \pm 0.010$ & $120 \pm 4$ \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+In addition to final test performance, we also compare the sparsity paths along the regularisation grid. Figure \ref{fig:task2_nnz} leaves space for the nnz-vs-$\lambda$ plots for bioresponse and musk (place the exported figures in the same directory as this report file).
+
+\begin{figure}[H]
+  \centering
+  \begin{subfigure}{0.49\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{nnz_vs_lambda_bioresponse.png}
+    \caption{Bioresponse: nnz vs $\lambda$}
+  \end{subfigure}
+  \hfill
+  \begin{subfigure}{0.49\textwidth}
+    \centering
+    \includegraphics[width=\linewidth]{nnz_vs_lambda_musk.png}
+    \caption{Musk: nnz vs $\lambda$}
+  \end{subfigure}
+  \caption{Task 2: comparison of sparsity paths (number of non-zero coefficients) along the regularisation grid for FISTA and scikit-learn.}
+  \label{fig:task2_nnz}
+\end{figure}
+
+\newpage
+\section{Task 3}
+We study binary classification with missing \emph{training} labels. Four training strategies share the same model (logistic Lasso fit with FISTA): \emph{Oracle} (true $y$ on every row), \emph{observed-only} (fit only on rows with observed $y$), \emph{KNN completion} (missing $y$ filled by majority vote over $k{=}5$ neighbor labels in standardized $\mathbf{X}$, then fit on all rows), and \emph{majority-class imputation} (missing $y$ set to the majority among observed labels---the \emph{mode} for two classes, not the arithmetic mean). The Lasso penalty is chosen on a validation set by ROC~AUC; we still report accuracy, balanced accuracy, F1, and test ROC~AUC in the appendix because they need not move together.
+
+\medskip
+
+Splits are class-stratified. Missing labels are applied only to the training--fit split; validation and test $y$ are always observed. The main run hides about $20\%$ of training--fit labels under MCAR, MAR1, MAR2, or MNAR. For MAR/MNAR, the notebook can score test points with a mask drawn from the same mechanism as in training so that evaluation does not mix incompatible missingness regimes (important when missingness depends on $y$). Numbers for all datasets and metrics are in Tables~\ref{tab:task3-bioresponse}--\ref{tab:task3-spectrometer}.
+
+\medskip
+
+Oracle is an upper reference. Observed-only avoids fake labels but drops incomplete rows. KNN uses local structure in $\mathbf{X}$ after scaling; bad neighbors hurt. Majority-class imputation is a strong default guess; it can fail under MNAR yet still look fine on a metric that was not used to tune~$\lambda$.
+
+\medskip
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{chart_bar_bioresponse.png}
+  \caption{Bioresponse: test metrics by missingness scenario and training strategy (bar chart).}
+  \label{fig:chart-bar-bioresponse}
+\end{figure}
+Oracle is (naturally) best or near-best in most table cells. KNN often beats observed-only because the same FISTA model is trained on all rows with imputed $y$. On gallstones MCAR, KNN even reaches a higher test ROC~AUC than Oracle in our run (Table~\ref{tab:task3-gallstones}), which we treat as finite-sample behaviour along the regularization path, not a general rule. Majority-class imputation is often weakest (e.g.\ bioresponse MNAR for balanced accuracy and ROC~AUC) but not always: gallstones MCAR F1 can be higher for majority-class than for KNN while ROC~AUC is lower (Table~\ref{tab:task3-gallstones}). Spectrometer illustrates volatile F1 with rare positives while ROC~AUC stays very high.\\
+
+Independently, we increase the fraction $c$ of MCAR-missing training--fit labels in $\{0.1,0.2,0.3,0.4,0.5\}$. Non-oracle metrics generally worsen as $c$ grows. it shows that experiment was run succesfully. If stratification wasn't introduced, it would result in pathological chart results. Figure~\ref{fig:task3-gallstones-c} is the gallstones $c$-sweep; bioresponse, musk, and spectrometer use the same layout in Appendix~\ref{app:task3} (Figures~\ref{fig:c-bioresponse}--\ref{fig:c-spectrometer}). The behavior remains consistent across different missing generation methods as seen in Tables \ref{tab:gall-c-mean} and \ref{tab:gall-c-knn}. \\  
+
+\medskip
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.95\linewidth]{c_gallstones.png}
+  \caption{Gallstones: MCAR sweep---test metrics vs.\ fraction $c$ of missing training--fit labels.}
+  \label{fig:task3-gallstones-c}
+\end{figure}
+
+\medskip
+
+We also tested, whether the performance of the different imputation techniques will be impacted by different missingness generation parameters. The results are summarised in Figure \ref{fig:exp_summary_spectro} for the Spectrometer dataset. As we could expect there is a correlation between the selected feature and model performance for the MAR1 setting. In case of MAR2, we tested two settings: all $\beta_x$ equal, and $\beta_x$ uniformly sampled from [0.1-1], but didn't observe visible advantages to any of those scenarios. On average, the KNN imputation method yields better results. The trends are consistent across all datasets. 
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=\linewidth]{exp_summary_spectro.png}
+  \caption{Spectrometer - experiment summary}
+  \label{fig:exp_summary_spectro}
+\end{figure}
+
+
+\newpage
+\section{Appendix}
+\subsection{Dataset Details}
+The following sections provide a more detailed overview of the four datasets utilized in this project.
+
+\begin{description}
+    \item[Biological Response \cite{dataset_bioresponse}] 
+        This dataset involves predicting the biological response of molecules based on 1,776 calculated molecular descriptors (d1 through d1776). These descriptors capture physical and chemical characteristics such as size, shape, and elemental constitution. The target is a binary experimental response, where (1) indicates a response was elicited and (0) indicates it was not.
+    \item[Gallstone Disease \cite{dataset_gallstone}] 
+    A clinical dataset collected from the Internal Medicine Outpatient Clinic of Ankara VM Medical Park Hospital between June 2022 and June 2023. It includes data from 319 individuals, 161 of whom were diagnosed with gallstone disease. The 38 features include demographic information, bioimpedance data, and laboratory results. The study was ethically approved by the Ankara City Hospital Ethics Committee (E2-23-4632).
+
+    \item[Low Resolution Spectrometer (LRS) \cite{dataset_spectrometer}] 
+    Derived from the IRAS-LRS database, this dataset contains 531 high-quality spectra. The features consist of 93 usable flux measurements (44 blue band and 49 red band channels) and 5 rescaling parameters. Originally a multi-class problem (0--99), the target was converted to a binary task by labeling the majority class as Positive (`P') and all others as Negative (`N').
+    
+    \item[Musk (Version 2) \cite{dataset_musk2}] 
+    This dataset consists of 102 molecules, of which 39 are judged by human experts to be musks and 63 are non-musks. The goal is to predict the ``musk likelihood'' of new molecules. Each molecule is represented by multiple conformations, characterized by 166 features describing the molecule's shape and distance measurements.
+\end{description}
+
+\subsection{Experiment results}
+\label{app:task3}
+
+Test-set metrics for the main grid (fixed $\approx 20\%$ missingness on the training--fit split unless noted). ``Oracle'': true labels on all training rows. ``Obs.'': observed only. ``KNN'': $k{=}5$ neighbor label imputation. ``Maj.'': majority class among observed labels (mode for binary $y$).
+
+\begin{table}[p]
+  \centering
+  \small
+  \caption{Bioresponse --- test metrics by scenario (MCAR, MAR1, MAR2, MNAR).}
+  \label{tab:task3-bioresponse}
+  \begin{tabular}{@{}l*{4}{S[table-format=1.4]}@{}}
+    \toprule
+    & {MCAR} & {MAR1} & {MAR2} & {MNAR} \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Accuracy}} \\
+    Oracle & 0.7617 & 0.7617 & 0.7617 & 0.7617 \\
+    Obs.   & 0.7483 & 0.7430 & 0.7364 & 0.7364 \\
+    KNN    & 0.7603 & 0.7497 & 0.7550 & 0.7537 \\
+    Maj.   & 0.7364 & 0.7403 & 0.5446 & 0.6112 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Balanced accuracy}} \\
+    Oracle & 0.7574 & 0.7574 & 0.7574 & 0.7574 \\
+    Obs.   & 0.7449 & 0.7402 & 0.7320 & 0.7322 \\
+    KNN    & 0.7555 & 0.7452 & 0.7494 & 0.7480 \\
+    Maj.   & 0.7230 & 0.7269 & 0.5029 & 0.5821 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{F1}} \\
+    Oracle & 0.7861 & 0.7861 & 0.7861 & 0.7861 \\
+    Obs.   & 0.7720 & 0.7655 & 0.7632 & 0.7626 \\
+    KNN    & 0.7862 & 0.7757 & 0.7830 & 0.7821 \\
+    Maj.   & 0.7838 & 0.7874 & 0.7042 & 0.7214 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{ROC AUC}} \\
+    Oracle & 0.8234 & 0.8234 & 0.8234 & 0.8234 \\
+    Obs.   & 0.8191 & 0.8181 & 0.8035 & 0.8031 \\
+    KNN    & 0.8160 & 0.8124 & 0.8090 & 0.8089 \\
+    Maj.   & 0.8124 & 0.8022 & 0.7321 & 0.7358 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[p]
+  \centering
+  \small
+  \caption{Gallstones --- test metrics by scenario.}
+  \label{tab:task3-gallstones}
+  \begin{tabular}{@{}l*{4}{S[table-format=1.4]}@{}}
+    \toprule
+    & {MCAR} & {MAR1} & {MAR2} & {MNAR} \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Accuracy}} \\
+    Oracle & 0.8438 & 0.8438 & 0.8438 & 0.8438 \\
+    Obs.   & 0.8125 & 0.7656 & 0.8125 & 0.8125 \\
+    KNN    & 0.8438 & 0.7500 & 0.7031 & 0.6875 \\
+    Maj.   & 0.7188 & 0.7812 & 0.7969 & 0.7344 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Balanced accuracy}} \\
+    Oracle & 0.8438 & 0.8438 & 0.8438 & 0.8438 \\
+    Obs.   & 0.8125 & 0.7656 & 0.8125 & 0.8125 \\
+    KNN    & 0.8438 & 0.7500 & 0.7031 & 0.6875 \\
+    Maj.   & 0.7188 & 0.7812 & 0.7969 & 0.7344 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{F1}} \\
+    Oracle & 0.8387 & 0.8387 & 0.8387 & 0.8387 \\
+    Obs.   & 0.8125 & 0.7619 & 0.8125 & 0.8125 \\
+    KNN    & 0.8333 & 0.7333 & 0.6780 & 0.6774 \\
+    Maj.   & 0.7500 & 0.8056 & 0.8219 & 0.7213 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{ROC AUC}} \\
+    Oracle & 0.8867 & 0.8867 & 0.8867 & 0.8867 \\
+    Obs.   & 0.8828 & 0.8770 & 0.8613 & 0.8838 \\
+    KNN    & 0.9082 & 0.8535 & 0.8301 & 0.8271 \\
+    Maj.   & 0.8672 & 0.8379 & 0.8779 & 0.7881 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[p]
+  \centering
+  \small
+  \caption{Musk --- test metrics by scenario.}
+  \label{tab:task3-musk}
+  \begin{tabular}{@{}l*{4}{S[table-format=1.4]}@{}}
+    \toprule
+    & {MCAR} & {MAR1} & {MAR2} & {MNAR} \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Accuracy}} \\
+    Oracle & 0.9356 & 0.9356 & 0.9356 & 0.9356 \\
+    Obs.   & 0.9364 & 0.9371 & 0.9356 & 0.9356 \\
+    KNN    & 0.9348 & 0.9348 & 0.9356 & 0.9356 \\
+    Maj.   & 0.9182 & 0.9242 & 0.9333 & 0.9333 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Balanced accuracy}} \\
+    Oracle & 0.8612 & 0.8612 & 0.8612 & 0.8612 \\
+    Obs.   & 0.8657 & 0.8641 & 0.8612 & 0.8612 \\
+    KNN    & 0.8486 & 0.8486 & 0.8612 & 0.8612 \\
+    Maj.   & 0.7864 & 0.8081 & 0.8538 & 0.8538 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{F1}} \\
+    Oracle & 0.7826 & 0.7826 & 0.7826 & 0.7826 \\
+    Obs.   & 0.7868 & 0.7877 & 0.7826 & 0.7826 \\
+    KNN    & 0.7737 & 0.7737 & 0.7826 & 0.7826 \\
+    Maj.   & 0.6914 & 0.7222 & 0.7732 & 0.7732 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{ROC AUC}} \\
+    Oracle & 0.9683 & 0.9683 & 0.9683 & 0.9683 \\
+    Obs.   & 0.9640 & 0.9629 & 0.9666 & 0.9666 \\
+    KNN    & 0.9649 & 0.9642 & 0.9683 & 0.9683 \\
+    Maj.   & 0.9586 & 0.9588 & 0.9653 & 0.9653 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{table}[p]
+  \centering
+  \small
+  \caption{Spectrometer --- test metrics by scenario.}
+  \label{tab:task3-spectrometer}
+  \begin{tabular}{@{}l*{4}{S[table-format=1.4]}@{}}
+    \toprule
+    & {MCAR} & {MAR1} & {MAR2} & {MNAR} \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Accuracy}} \\
+    Oracle & 0.9065 & 0.9065 & 0.9065 & 0.9065 \\
+    Obs.   & 0.9065 & 0.8972 & 0.8972 & 0.8972 \\
+    KNN    & 0.8972 & 0.8972 & 0.8972 & 0.8972 \\
+    Maj.   & 0.9252 & 0.8972 & 0.8972 & 0.8972 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{Balanced accuracy}} \\
+    Oracle & 0.5455 & 0.5455 & 0.5455 & 0.5455 \\
+    Obs.   & 0.5455 & 0.5000 & 0.5000 & 0.5000 \\
+    KNN    & 0.5000 & 0.5000 & 0.5000 & 0.5000 \\
+    Maj.   & 0.6364 & 0.5000 & 0.5000 & 0.5000 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{F1}} \\
+    Oracle & 0.1667 & 0.1667 & 0.1667 & 0.1667 \\
+    Obs.   & 0.1667 & 0.0000 & 0.0000 & 0.0000 \\
+    KNN    & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+    Maj.   & 0.4286 & 0.0000 & 0.0000 & 0.0000 \\
+    \midrule
+    \multicolumn{5}{@{}l}{\textit{ROC AUC}} \\
+    Oracle & 0.9953 & 0.9953 & 0.9953 & 0.9953 \\
+    Obs.   & 0.9962 & 1.0000 & 0.9924 & 0.9924 \\
+    KNN    & 0.9962 & 1.0000 & 0.9981 & 0.9981 \\
+    Maj.   & 0.9972 & 0.9962 & 0.9830 & 0.9830 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{metrics_bio.png}
+        \caption{Score metrics across lambda values}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{coeffs_bio.png}
+        \caption{Coefficient plot}
+    \end{subfigure}
+    \caption{Values of parameters chosen by FISTA algorithm - bioresponse dataset}
+    \label{fig:lambdas_bio}
+\end{figure}
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{metrics_gall.png}
+        \caption{Score metrics across lambda values}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{coeffs_gall.png}
+        \caption{Coefficient plot}
+    \end{subfigure}
+    \caption{Values of parameters chosen by FISTA algorithm - gallstones dataset}
+    \label{fig:lambdas_gall}
+\end{figure}
+
+\begin{figure}[p]
+    \centering
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{metrics_musk.png}
+        \caption{Score metrics across lambda values}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}{0.49\textwidth}
+        \centering
+        \includegraphics[width=\linewidth]{coeffs_musk.png}
+        \caption{Coefficient plot}
+    \end{subfigure}
+    \caption{Values of parameters chosen by FISTA algorithm - musk dataset}
+    \label{fig:lambdas_musk}
+\end{figure}
+
+\begin{table}[p]
+\centering
+\caption{Mean performance across different missingness mechanisms and fractions for the gallstones dataset (5 runs per missing scenario) - `mean' imputation}
+\label{tab:gall-c-mean}
+\vspace{0.5em}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Fraction} & \textbf{MAR1} & \textbf{MAR2} & \textbf{MCAR} & \textbf{MNAR} \\ 
+\midrule
+0.1 & $0.732 \pm 0.038$ & $0.744 \pm 0.040$ & $0.730 \pm 0.024$ & $0.733 \pm 0.032$ \\ 
+0.2 & $0.688 \pm 0.027$ & $0.689 \pm 0.058$ & $0.720 \pm 0.045$ & $0.683 \pm 0.056$ \\ 
+0.3 & $0.639 \pm 0.083$ & $0.667 \pm 0.053$ & $0.647 \pm 0.063$ & $0.660 \pm 0.042$ \\ 
+0.4 & $0.609 \pm 0.060$ & $0.614 \pm 0.038$ & $0.598 \pm 0.039$ & $0.614 \pm 0.067$ \\ 
+0.5 & $0.604 \pm 0.054$ & $0.574 \pm 0.030$ & $0.568 \pm 0.066$ & $0.603 \pm 0.059$ \\ 
+0.6 & $0.565 \pm 0.044$ & $0.597 \pm 0.041$ & $0.562 \pm 0.076$ & $0.575 \pm 0.062$ \\ 
+0.7 & $0.534 \pm 0.030$ & $0.545 \pm 0.054$ & $0.504 \pm 0.021$ & $0.539 \pm 0.050$ \\ 
+0.8 & $0.532 \pm 0.032$ & $0.534 \pm 0.026$ & $0.516 \pm 0.016$ & $0.529 \pm 0.016$ \\ 
+0.9 & $0.516 \pm 0.022$ & $0.512 \pm 0.013$ & $0.541 \pm 0.042$ & $0.500 \pm 0.001$ \\ 
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{table}[p]
+\centering
+\caption{Mean performance across different missingness mechanisms and fractions for the gallstones dataset (5 runs per missing scenario) - `knn\_mean' imputation}
+\label{tab:gall-c-knn}
+\vspace{0.5em}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Fraction} & \textbf{MAR1} & \textbf{MAR2} & \textbf{MCAR} & \textbf{MNAR} \\ 
+\midrule
+0.1 & $0.717 \pm 0.028$ & $0.745 \pm 0.028$ & $0.736 \pm 0.026$ & $0.727 \pm 0.048$ \\ 
+0.2 & $0.730 \pm 0.042$ & $0.709 \pm 0.022$ & $0.741 \pm 0.016$ & $0.738 \pm 0.028$ \\ 
+0.3 & $0.682 \pm 0.041$ & $0.744 \pm 0.030$ & $0.741 \pm 0.056$ & $0.728 \pm 0.062$ \\ 
+0.4 & $0.742 \pm 0.035$ & $0.713 \pm 0.030$ & $0.755 \pm 0.050$ & $0.694 \pm 0.054$ \\ 
+0.5 & $0.723 \pm 0.021$ & $0.611 \pm 0.070$ & $0.691 \pm 0.037$ & $0.659 \pm 0.059$ \\ 
+0.6 & $0.595 \pm 0.076$ & $0.669 \pm 0.054$ & $0.662 \pm 0.050$ & $0.664 \pm 0.072$ \\ 
+0.7 & $0.683 \pm 0.044$ & $0.630 \pm 0.050$ & $0.657 \pm 0.052$ & $0.653 \pm 0.106$ \\ 
+0.8 & $0.579 \pm 0.064$ & $0.563 \pm 0.070$ & $0.637 \pm 0.067$ & $0.581 \pm 0.053$ \\ 
+0.9 & $0.559 \pm 0.063$ & $0.584 \pm 0.052$ & $0.516 \pm 0.055$ & $0.531 \pm 0.041$ \\ 
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\linewidth]{c_bioresponse.png}
+  \caption{MCAR sweep: test metrics vs.\ fraction $c$ of missing training labels (bioresponse).}
+  \label{fig:c-bioresponse}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\linewidth]{c_gallstones.png}
+  \caption{MCAR sweep: test metrics vs.\ $c$ (gallstones).}
+  \label{fig:c-gallstones}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\linewidth]{c_musk.png}
+  \caption{MCAR sweep: test metrics vs.\ $c$ (musk).}
+  \label{fig:c-musk}
+\end{figure}
+
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\linewidth]{c_spectrometer.png}
+  \caption{MCAR sweep: test metrics vs.\ $c$ (spectrometer).}
+  \label{fig:c-spectrometer}
+\end{figure}
+\newpage
+\bibliographystyle{plain} 
+\bibliography{references}
+
+\end{document}

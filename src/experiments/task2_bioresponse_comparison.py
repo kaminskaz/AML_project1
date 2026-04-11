@@ -1,24 +1,7 @@
 """Compare custom FISTA Logistic Lasso vs scikit-learn L1 LogisticRegression on bioresponse.csv.
 
-This is a Task 2 (fully-labeled) evaluation on a real dataset included in the repo.
-
-It mirrors `task2_sklearn_comparison.py`, except the dataset is loaded from CSV.
-
 Run (example):
   ./.venv/bin/python -m src.experiments.task2_bioresponse_comparison --no-show --save-dir outputs/bioresponse
-
-Notes on lambda vs C mapping
-- Our objective uses mean loss + lambda * ||w||_1.
-- sklearn's `LogisticRegression` uses `C` as inverse regularization strength,
-  and its internal scaling is closer to a sum over samples.
-- A common practical alignment is:
-    C ≈ 1 / (lambda * n_train)
-
-Dataset notes
-- `data/bioresponse.csv` is expected to be preprocessed with:
-  - target column named `class` in {0,1}
-  - no missing values in X or y
-  - features already standardized
 
 Because the CSV is already standardized, this script defaults to:
 - custom: standardize=False
